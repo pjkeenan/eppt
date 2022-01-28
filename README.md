@@ -1,2 +1,2 @@
 # eppt
-COde fir the EPPT MPAGS course
+Code for the EPPT MPAGS course
