@@ -1,0 +1,33 @@
+# Change the default number of workers 
+# (in multi-threading mode which is the default)
+#/run/numberOfWorkers 4
+
+# Initialize kernel
+/run/initialize 
+
+# do not randomize type of primary particle
+/B5/generator/randomizePrimary FALSE
+
+# Set the ange between the two arms
+/B5/detector/armAngle 0. deg
+
+# Set the magnetic field strength
+/B5/field/value 0.5 tesla
+
+# Set the particle that will be generated 
+# (choice: mu+, e+, pi+, kaon+, proton)
+/gun/particle mu+
+
+# Set the particle's initial momentum
+/B5/generator/momentum 100. GeV
+
+# Set standard deviation of initial momentum. 
+# Zero means all initial particles have exactly the same momentum.
+/B5/generator/sigmaMomentum 0. GeV
+
+# Set standard deviation of initial angle. 
+# Zero means all initial particles have exactly the same direction.
+/B5/generator/sigmaAngle 0. deg
+
+# Run 1000 events
+/run/beamOn 1000
