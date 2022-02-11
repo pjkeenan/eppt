@@ -1,4 +1,6 @@
 from ast import Or
+from code import interact
+import re
 from tkinter import E
 import pandas as pd
 import numpy as np
@@ -69,20 +71,31 @@ def create_data_dict(df):
         dc2_xlist = []
         dc2_zlist = []
         for x, z in zip(df_dc1_x[event], df_dc1_z[event]):
+            # Apply smearing of x positions
+            smear = np.random.normal(scale=0.1) # smear by gaussian width 100 microns -> 0.1 mm
+            x += smear
             dc1_xlist.append(x / 1000) # mm -> m
             dc1_zlist.append(z * 0.5) #layer -> m Could change this to real space values 
         dc1_dict[event] = [dc1_xlist, dc1_zlist]
         for x, z in zip(df_dc2_x[event], df_dc2_z[event]):
             # Apply smearing of x positions
             smear = np.random.normal(scale=0.1) # smear by gaussian width 100 microns -> 0.1 mm
-            # print(f"xraw: {x} smear: {smear}")
             x += smear
-            # print(f"xsmeared: {x}")
             dc2_xlist.append(x / 1000) # mm -> m
             dc2_zlist.append(z * 0.5) # layer -> m
         dc2_dict[event] = [dc2_xlist, dc2_zlist]
     
     return(dc1_dict, dc2_dict)
+
+def line(a, x, b):
+    return (a * x + b)
+
+def chisquare(observed_values,expected_values):
+    test_statistic=0
+    for observed, expected in zip(observed_values, expected_values):
+        test_statistic+=(float(observed)-float(expected))**2/float(expected)
+    return test_statistic
+
 
 def fit_hits (df_ax1, df_ax2):
     """Perform linear least squares fit on data
@@ -138,48 +151,56 @@ def fit_hits (df_ax1, df_ax2):
                     for l4 in layer4:
                         xvals = [df_ax2[l0], df_ax2[l1], df_ax2[l2], df_ax2[l3], df_ax2[l4]]
                         zvals = [df_ax1[l0], df_ax1[l1], df_ax1[l2], df_ax1[l3], df_ax1[l4]]
-                        chi2, p = stats.chisquare(xvals)
+                        popt, pcov = curve_fit(line, zvals, xvals)
+                        print(f'\npopt: {popt}')
+                        expectedXVals = []
+                        for z in zvals:
+                            expectedXVals.append(popt[0]*z + popt[1])
+                        # print(f'expectedXVals: {expectedXVals}')
+                        print(f'expectedXVals[-1]: {expectedXVals[-1]}')
+                        chi2 = chisquare(xvals, expectedXVals)
                         chi2 = abs(chi2)
-                        # print(f"xvals: {xvals} chi2: {chi2}")
+                        print(f"xvals: {xvals} chi2: {chi2}")
                         if chi2 < minChi2:
+                            print(f'Calculated new slope for indices {[l0, l1, l2, l3, l4]}')
                             minChi2 = chi2
-                            slope, intercept = np.polyfit(zvals, xvals, 1)
-                            # slope = abs(slope)
-
-    # slope, intercept = np.polyfit(df_ax1, df_ax2, 1)
-    # slope = abs(slope) # converting to m
-    # intercept = intercept
+                            slope, intercept = popt 
+                        else:
+                            print(f'NOT better fit {[l0, l1, l2, l3, l4]}')
+    
     return(slope, abs(slope), intercept)
 
 def event_display(event, dc1_ax1, dc1_ax2, dc2_ax1, dc2_ax2, removed):
-    print(f"\nevent {event} \ndc1_ax1: {dc1_ax1} dc1_ax2: {dc1_ax2}\ndc2_ax1: {dc2_ax1} dc2_ax2: {dc2_ax2}")
     m_dc1, abs_m_dc1, c_dc1 = fit_hits(dc1_ax1, dc1_ax2)
     m_dc2, abs_m_dc2, c_dc2 = fit_hits(dc2_ax1, dc2_ax2)
     dc1_ax1 = [x - 6 for x in dc1_ax1] # shift to detector coordinates
     dc2_ax1 = [x + 2.5 for x in dc2_ax1]
+    # dc1_ax1 = [x - 4 for x in dc1_ax1] # shift to detector coordinates
+    # dc2_ax1 = [x + 1.5 for x in dc2_ax1]
     # Gradient remains the same intercept changes
-    print(f'm_dc1, c_dc1: {m_dc1}, {c_dc1}')
-    print(f'm_dc2, c_dc2 {m_dc2}, {c_dc2}')
-    print(f"dc1_ax1: {dc1_ax1} dc1_ax2: {dc1_ax2}\ndc2_ax1: {dc2_ax1} dc2_ax2: {dc2_ax2}")
+    # print(f'm_dc1, c_dc1: {m_dc1}, {c_dc1}')
+    # print(f'm_dc2, c_dc2 {m_dc2}, {c_dc2}')
+    # print(f"dc1_ax1: {dc1_ax1} dc1_ax2: {dc1_ax2}\ndc2_ax1: {dc2_ax1} dc2_ax2: {dc2_ax2}")
     dc1_zpoints = np.linspace(min(dc1_ax1), 1, 20)
     dc2_zpoints = np.linspace(-1, max(dc2_ax1), 20)
-    print(f'dc1_zp: {dc1_zpoints} dc2_zp: {dc2_zpoints}')
+    # print(f'dc1_zp: {dc1_zpoints} dc2_zp: {dc2_zpoints}')
     c_dc1 = c_dc1 + (m_dc1 * 6)
     c_dc2 = c_dc2 - (m_dc2 * 2.5)
-    print(f'm_dc1, c_dc1: {m_dc1}, {c_dc1}')
-    print(f'm_dc2, c_dc2 {m_dc2}, {c_dc2}')
+    # print(f'm_dc1, c_dc1: {m_dc1}, {c_dc1}')
+    # print(f'm_dc2, c_dc2 {m_dc2}, {c_dc2}')
     line_values_dc1 = [m_dc1 * i + c_dc1 for i in dc1_zpoints]
     line_values_dc2 = [m_dc2 * i + c_dc2 for i in dc2_zpoints]
-    print(f"linevdc1: {line_values_dc1}\nlinevdc2: {line_values_dc2}")
+    # print(f"linevdc1: {line_values_dc1}\nlinevdc2: {line_values_dc2}")
     
     plt.figure(3)
     plt.plot(dc1_ax1, dc1_ax2, 'bx')
     plt.plot(dc2_ax1, dc2_ax2, 'gx')
     plt.plot(dc1_zpoints, line_values_dc1, 'b--')
     plt.plot(dc2_zpoints, line_values_dc2, 'g--')
-    # plt.vlines([-6, -4, -1, 1, 4, 6], -100, 100)
+    plt.xlabel('z (m)')
+    plt.ylabel('x (m)')
     cax = plt.gca()
-    cax.add_patch(Rectangle((-1,-1), 2, 2, edgecolor='black',facecolor='none')) #Add a square corresponding to the magnetic field chamber
+    cax.add_patch(Rectangle((-1,-1), 2, 2, edgecolor='black',facecolor='none')) # Add a square corresponding to the magnetic field chamber
     if removed:
         plt.savefig(f'figures/removedEvts/event{event}.png')
     else:
@@ -193,7 +214,8 @@ def deflection_angle(m1, m2):
 
 def calc_momentum(Bfield, length, m1, m2):
     theta = deflection_angle(m1, m2)
-    mom = (0.3*Bfield*length)/(2*math.sin(theta/2)) # GeV????
+    print(f'theta: {theta}, tan(theta): {math.tan(theta)}')
+    mom = (0.3*Bfield*length)/(2*math.sin(theta/2))
     return mom
 
 def calculate_binning(data):
@@ -217,12 +239,12 @@ def calculate_binning(data):
     # Set the bin edges
     binEdges = []
     binCentres = []
-    binwidth = (highestedge - lowestedge)/nbins
+    binWidth = (highestedge - lowestedge)/nbins
     for binIndex in range(nbins + 1):
-        binEdges.append(lowestedge + (binIndex * binwidth))
+        binEdges.append(lowestedge + (binIndex * binWidth))
     for binIndex in binEdges[:-1]:
-        binCentres.append(binIndex+(binwidth/2))
-    return(binEdges, binCentres, binwidth, nbins)
+        binCentres.append(binIndex+(binWidth/2))
+    return(binEdges, binCentres, binWidth, nbins)
 
 def remove_outliers(momList):
     mean = np.mean(momList)
@@ -233,9 +255,12 @@ def remove_outliers(momList):
     removedEvtNums = []
     evtNum = 0
     for m in momList:
-        if m < mean+(1.5*stdDev) and m > mean-(1.5*stdDev):
+        # if m < mean+(1.5*stdDev) and m > mean-(1.5*stdDev):
+        #     filteredList.append(m)
+        if m < 115 and m > 85:
             filteredList.append(m)
         else:
+            print(f'removed evt with mom: {m}')
             removedEvtNums.append(evtNum)
         evtNum += 1
     print(f"HERE min: {min(filteredList)} max: {max(filteredList)} kept: {len(filteredList)} removed: {len(removedEvtNums)}")
@@ -246,67 +271,91 @@ def gaussian(x, *popt):
     A, mu, sigma = popt
     return(A*np.exp(-(x-mu)**2/(2.*sigma**2)))
 
-def plot_mom_dist(filteredList, binEdges, binCentres, nbins):
+def plot_mom_dist(filteredList, binEdges, binCentres, nbins, binWidth):
     plt.figure(1)
     n, bins, patches = plt.hist(filteredList, bins=binEdges, histtype='step')
     popt, pcov = curve_fit(gaussian, binCentres, n, p0 = [1,100,1])
-
+    print(f'A = {popt[0]} +/- {pcov[0,0]**0.5} mu = {popt[1]} +/- {pcov[1,1]**0.5} sigma = {popt[2]} +/- {pcov[2,2]**0.5}')
     binRange = np.linspace(binEdges[0], binEdges[-1], nbins)
     plt.plot(binRange, gaussian(binCentres, *popt), 'r', label="Gaussian Fit")
 
     plt.title(f'mu = {popt[1]}, sigma = {popt[2]}')
-    # plt.yscale('log')
+    plt.legend(loc='upper right')
+    plt.xlabel('Tranverse mom (GeV)')
+    plt.ylabel(f'n events (bin width = {binWidth})')
     plt.savefig(f'figures/momDist.png')
     plt.close()
     return
 
-"""
-# slope_dc1, intercept_dc1 = np.polyfit(df_dc1_filtered['dc1Hits_z'], df_dc1_filtered['dc1Hits_x'], 1)
-slope_dc1, intercept_dc1 = fit_hits(df_dc1_filtered['dc1Hits_z'], df_dc1_filtered['dc1Hits_x'])
-line_values_dc1 = [slope_dc1 * i + intercept_dc1 for i in df_dc1_filtered['dc1Hits_z']]
+def calc_mom_res(filteredList, B):
+    resList = []
+    sigma_x = 100e-6 # x precision
+    h = 4.5 # z distance
+    for mom in filteredList:
+        resList.append((sigma_x/h)*(mom/(0.3*B*2)))
+    return resList
 
-# slope_dc2, intercept_dc2 = np.polyfit(df_dc2_filtered['dc2Hits_z'], df_dc2_filtered['dc2Hits_x'], 1)
-slope_dc2, intercept_dc2 = fit_hits(df_dc2_filtered['dc2Hits_z'], df_dc2_filtered['dc2Hits_x'])
-line_values_dc2 = [slope_dc2 * i + intercept_dc2 for i in df_dc2_filtered['dc2Hits_z']]
-"""
-# plt.figure(1)
-# # plt.scatter(df_dc1['dc1Hits_z'], df_dc1['dc1Hits_x'])
-# plt.plot(df_dc1['dc1Hits_z'], df_dc1['dc1Hits_x'], 'or')
-# plt.plot(df_dc1['dc1Hits_z'], line_values, 'b')
-# plt.savefig('test.png')
-# # plt.show()
+def plot_res_dist(resList, binEdges, binCentres, nbins, binWidth):
+    plt.figure(2)
+    print(f'resList: {resList}')
+    n, bins, patches = plt.hist(resList, bins=binEdges, histtype='step')
+    popt, pcov = curve_fit(gaussian, binCentres, n, p0 = [50, 0, 1])
+    # popt, pcov = curve_fit(gaussian, binCentres, n)
+    print(f'A = {popt[0]} +/- {pcov[0,0]**0.5} mu = {popt[1]} +/- {pcov[1,1]**0.5} sigma = {popt[2]} +/- {pcov[2,2]**0.5}')
+    binRange = np.linspace(binEdges[0], binEdges[-1], nbins)
+    plt.plot(binRange, gaussian(binCentres, *popt), 'r', label="Gaussian Fit")
 
+    plt.title(f'mu = {popt[1]}, sigma = {popt[2]}')
+    plt.legend(loc='upper right')
+    plt.xlabel('Momentum resolution')
+    plt.ylabel(f'n events (bin width = {binWidth})')
+    plt.savefig(f'figures/resDist.png')
+    plt.close()
+    return
 
 def main():
     # Get data
-    df = get_df(cwd, "/B5")
+    df = get_df(cwd, "/100GeV_0_5T_mu")
     dc1_dict, dc2_dict = create_data_dict(df)
-    print(f'dc2_dict: \n{dc2_dict}')
     # Fit and calculate momenta
     momentumList = []
     for event in dc1_dict:
+        print(f'\nevent: {event} dc1')
         m_dc1, abs_m_dc1, c_dc1 = fit_hits(dc1_dict[event][1], dc1_dict[event][0])
+        print('dc2')
         m_dc2, abs_m_dc2, c_dc2 = fit_hits(dc2_dict[event][1], dc2_dict[event][0])
         # print(f"m_dc1: {m_dc1}, m_dc2: {m_dc2}")
         momentum = calc_momentum(0.5, 2, abs_m_dc1, abs_m_dc2)
-        # print(f"momentum: {momentum}")
         momentumList.append(momentum)
+        # print(f"momentum: {momentum}")
     
-    # Remove outliers
+    # Identify outliers
     filteredList, removedEvtNums = remove_outliers(momentumList)
+    # filteredList = momentumList
 
-    displayEventNumbers = [990, 994]
+    # Res of each event
+    resList = calc_mom_res(filteredList, 0.5)
+
+    for evtNum in removedEvtNums:
+        print(f'evtNum: {evtNum}')
+        event_display(evtNum, dc1_dict[evtNum][1], dc1_dict[evtNum][0], dc2_dict[evtNum][1], dc2_dict[evtNum][0], True)
+    print(f'Would have removed event Nos. : {removedEvtNums}')
+    print(f'resList: {resList}')
+    print(f'Mean resolution: {np.mean(resList)} +/- {np.std(resList)/(len(resList)**0.5)}')
+    
+     # Use to display any additional events 
+    displayEventNumbers = [] # range(10, 20)
     for evtNum in displayEventNumbers:
-        print(f'\nBefore call to event_display {evtNum, dc1_dict[evtNum][1], dc1_dict[evtNum][0], dc2_dict[evtNum][1], dc2_dict[evtNum][0]}')
         event_display(evtNum, dc1_dict[evtNum][1], dc1_dict[evtNum][0], dc2_dict[evtNum][1], dc2_dict[evtNum][0], False)
     
-    for evtNum in removedEvtNums:
-        event_display(evtNum, dc1_dict[evtNum][1], dc1_dict[evtNum][0], dc2_dict[evtNum][1], dc2_dict[evtNum][0], True)
+    # Plot mom dist & fit gaussian
+    binEdges, binCentres, binWidth, nbins = calculate_binning(filteredList)
+    plot_mom_dist(filteredList, binEdges, binCentres, nbins, binWidth)
 
-    # Plot & fit gaussian
-    # mu, sigma = stats.norm.fit(filteredList)
-    binEdges, binCentres, binwidth, nbins = calculate_binning(filteredList)
-    plot_mom_dist(filteredList, binEdges, binCentres, nbins)
+    # Plot res dist & fit gaussian
+    binEdges, binCentres, binWidth, nbins = calculate_binning(resList)
+    plot_res_dist(resList, binEdges, binCentres, nbins, binWidth)
+
 
 if __name__=='__main__':
     main()
